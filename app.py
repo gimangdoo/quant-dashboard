@@ -26,7 +26,6 @@ def load_data():
         df = pd.DataFrame(data[1:], columns=data[0])
         code_col = next((c for c in df.columns if '코드' in c or 'Code' in c or '종목' in c or 'ticker' in c.lower()), None)
         if code_col:
-            # 🎯 [핵심 패치 1] '종목_005930' 등에서 숫자 6자리(005930)만 완벽히 추출하는 강력한 정규식 적용
             df['종목코드'] = df[code_col].astype(str).str.extract(r'(\d+)')[0].str.zfill(6)
         return df
 
@@ -48,15 +47,29 @@ def load_data():
     kpi_merged = pd.merge(kospi_df[['종목코드', rs_kpi]].rename(columns={rs_kpi:'RS'}), master_df, on='종목코드', how='inner')
     kdq_merged = pd.merge(kosdaq_df[['종목코드', rs_kdq]].rename(columns={rs_kdq:'RS'}), master_df, on='종목코드', how='inner')
     
-    # 🎯 [핵심 패치 2] 한국거래소(KRX) 공식 상장종목 API를 호출하여 정확한 한글 기업명으로 1:1 강제 매핑
+    # 🎯 [핵심 패치 2] 무결점 다중 방어막이 탑재된 KRX 공식 상장종목 API 호출
     try:
         krx_df = fdr.StockListing('KRX')
-        krx_dict = dict(zip(krx_df['Code'], krx_df['Name']))
+        # 방어 1: fdr 최신 버전은 'Symbol', 구버전은 'Code'를 사용함. 둘 다 완벽히 대응.
+        code_col_krx = 'Symbol' if 'Symbol' in krx_df.columns else 'Code'
+        krx_dict = dict(zip(krx_df[code_col_krx].astype(str).str.zfill(6), krx_df['Name']))
+        
         kpi_merged['종목명'] = kpi_merged['종목코드'].map(krx_dict).fillna(kpi_merged['종목코드'])
         kdq_merged['종목명'] = kdq_merged['종목코드'].map(krx_dict).fillna(kdq_merged['종목코드'])
-    except:
-        kpi_merged['종목명'] = kpi_merged['종목코드']
-        kdq_merged['종목명'] = kdq_merged['종목코드']
+        
+    except Exception as e:
+        # 방어 2: 클라우드 서버 IP 차단 또는 API 완전 마비 시 GitHub 백업 CSV 파일로 긴급 우회(Fallback)
+        try:
+            backup_df = pd.read_csv("https://raw.githubusercontent.com/corazzon/finance-data-analysis/main/krx.csv")
+            code_col_bk = 'Symbol' if 'Symbol' in backup_df.columns else 'Code'
+            krx_dict = dict(zip(backup_df[code_col_bk].astype(str).str.zfill(6), backup_df['Name']))
+            
+            kpi_merged['종목명'] = kpi_merged['종목코드'].map(krx_dict).fillna(kpi_merged['종목코드'])
+            kdq_merged['종목명'] = kdq_merged['종목코드'].map(krx_dict).fillna(kdq_merged['종목코드'])
+        except:
+            # 최악의 경우에만 코드 번호 출력
+            kpi_merged['종목명'] = kpi_merged['종목코드']
+            kdq_merged['종목명'] = kdq_merged['종목코드']
     
     kpi_merged['RS'] = pd.to_numeric(kpi_merged['RS'], errors='coerce').fillna(0)
     kdq_merged['RS'] = pd.to_numeric(kdq_merged['RS'], errors='coerce').fillna(0)
@@ -191,7 +204,6 @@ def draw_stock_chart(row, view_mode):
     )
     
     fig.update_layout(
-        # 🎯 [핵심 패치 3] 완벽한 한글 종목명 주입
         title=dict(text=f"<b>{name}</b> ({sym}) | RS: {rs:.1f}", font=dict(size=18), x=0.02),
         xaxis=dict(rangeslider=dict(visible=False)),
         yaxis=dict(title="성장률 (%)", side="left", showgrid=False, fixedrange=True, range=[y_left_min, y_left_max]), 
