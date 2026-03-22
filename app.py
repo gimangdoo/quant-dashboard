@@ -87,8 +87,10 @@ def draw_stock_chart(row):
     sym, name, rs = row['종목코드'], row.get('종목명', ''), row.get('RS', 0)
     
     end_date = datetime.date.today()
-    start_fetch = end_date - datetime.timedelta(days=500)
-    start_view = end_date - datetime.timedelta(days=365)
+    # 🎯 [핵심 패치] 시야를 1년(365일)에서 3년(1095일)으로 파노라마 확장!
+    start_view = end_date - datetime.timedelta(days=1095) 
+    # SMA200 계산을 위해 시작점으로부터 300일 이전 데이터 선확보
+    start_fetch = start_view - datetime.timedelta(days=300)
     
     try:
         df_price = fdr.DataReader(sym, start_fetch, end_date)
@@ -102,11 +104,9 @@ def draw_stock_chart(row):
     df_view = df_price[df_price.index >= pd.to_datetime(start_view)].reset_index()
     df_view['idx'] = np.arange(len(df_view))
     
-    # 🎯 [핵심 패치] X축 라벨용: 각 월의 첫 번째 거래일(1일 근처) 찾기
     df_view['YearMonth'] = df_view['Date'].dt.strftime('%Y-%m')
     first_days = df_view.drop_duplicates(subset=['YearMonth'], keep='first')
     tickvals = first_days['idx'].tolist()
-    # 새해 첫 달(1월)은 '24년 1월' 형태로, 나머지는 'O월' 형태로 가독성 극대화
     ticktext = [f"{d.year}년 {d.month}월" if d.month == 1 else f"{d.month}월" for d in first_days['Date']]
 
     fig = make_subplots(
@@ -115,7 +115,6 @@ def draw_stock_chart(row):
         specs=[[{"secondary_y": True}], [{"secondary_y": False}]]
     )
     
-    # 1. 캔들차트 및 이평선
     fig.add_trace(go.Candlestick(
         x=df_view['idx'], open=df_view['Open'], high=df_view['High'], 
         low=df_view['Low'], close=df_view['Close'], name='일봉',
@@ -129,16 +128,14 @@ def draw_stock_chart(row):
             x=df_view['idx'], y=df_view[sma], name=sma, line=dict(color=color, width=1.5), hoverinfo='skip'
         ), row=1, col=1, secondary_y=True)
 
-    # 2. 성장률 그래프 (좌측 % Y축) - 🎯 결측치 스냅(merge_asof) 장착
     q_growth, y_growth = calculate_growth(row)
     growth_values = []
     
-    df_view_sorted = df_view[['Date', 'idx']].sort_values('Date') # 스냅을 위한 기준 데이터
+    df_view_sorted = df_view[['Date', 'idx']].sort_values('Date')
 
     if not q_growth.empty:
         q_growth = q_growth[q_growth['Date'] >= pd.to_datetime(start_view)].sort_values('Date')
         if not q_growth.empty:
-            # 결산일에 가장 가까운 거래일(idx)로 자동 자석 접착 (nearest)
             q_growth = pd.merge_asof(q_growth, df_view_sorted, on='Date', direction='nearest')
             fig.add_trace(go.Scatter(
                 x=q_growth['idx'], y=q_growth['Growth'], text=q_growth['Period'], name='분기 증감률',
@@ -149,9 +146,9 @@ def draw_stock_chart(row):
             growth_values.extend(q_growth['Growth'].tolist())
 
     if not y_growth.empty:
+        # 🎯 3년 치 캔들 차트 범위 안에 3년 치 연간 데이터가 완벽히 포섭됩니다!
         y_growth = y_growth[y_growth['Date'] >= pd.to_datetime(start_view)].sort_values('Date')
         if not y_growth.empty:
-            # 🎯 연말(12/31) 휴장일 증발 방지 로직 적용
             y_growth = pd.merge_asof(y_growth, df_view_sorted, on='Date', direction='nearest')
             fig.add_trace(go.Scatter(
                 x=y_growth['idx'], y=y_growth['Growth'], text=y_growth['Period'], name='연간 증감률',
@@ -161,7 +158,6 @@ def draw_stock_chart(row):
             ), row=1, col=1, secondary_y=False)
             growth_values.extend(y_growth['Growth'].tolist())
 
-    # 다이나믹 스케일링 (Y축 범위 자동화)
     if growth_values:
         g_min, g_max = min(growth_values), max(growth_values)
         g_range = g_max - g_min if g_max != g_min else 100
@@ -169,7 +165,6 @@ def draw_stock_chart(row):
     else:
         y_left_min, y_left_max = -100, 100
 
-    # 3. 거래량 차트 (하단)
     colors = ['red' if c >= o else 'blue' for c, o in zip(df_view['Close'], df_view['Open'])]
     fig.add_trace(go.Bar(
         x=df_view['idx'], y=df_view['Volume'], marker_color=colors, name='거래량',
@@ -177,14 +172,12 @@ def draw_stock_chart(row):
         hovertemplate="날짜: %{customdata}<br>거래량: %{y:,}주<extra></extra>"
     ), row=2, col=1)
 
-    # 4. 레이아웃 제어 (X축 하단 라벨 강제, 7/8 스케일링)
     max_price = df_view['High'].max()
     max_vol = df_view['Volume'].max()
     
-    # 상단 캔들차트의 X축 라벨 숨김
     fig.update_xaxes(showticklabels=False, row=1, col=1)
     
-    # 🎯 하단 거래량 차트에만 '매월 첫 거래일(O월)' 라벨 적용
+    # 🎯 3년 치 월별 라벨도 거래량 차트 하단에 깔끔하게 자동 정렬됩니다.
     fig.update_xaxes(
         tickmode='array', tickvals=tickvals, ticktext=ticktext, showticklabels=True, row=2, col=1
     )
