@@ -26,7 +26,8 @@ def load_data():
         df = pd.DataFrame(data[1:], columns=data[0])
         code_col = next((c for c in df.columns if '코드' in c or 'Code' in c or '종목' in c or 'ticker' in c.lower()), None)
         if code_col:
-            df['종목코드'] = df[code_col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.zfill(6)
+            # 🎯 [핵심 패치 1] '종목_005930' 등에서 숫자 6자리(005930)만 완벽히 추출하는 강력한 정규식 적용
+            df['종목코드'] = df[code_col].astype(str).str.extract(r'(\d+)')[0].str.zfill(6)
         return df
 
     master_df = get_df(URL_MASTER_DB)
@@ -34,9 +35,6 @@ def load_data():
     kosdaq_df = get_df(URL_SOURCE_KOSDAQ)
     
     master_df = master_df[master_df['데이터_상태'].str.contains('✅ 정상', na=False)].copy()
-    
-    name_col = next((c for c in master_df.columns if '이름' in c or '명' in c or 'Name' in c), None)
-    master_df['종목명'] = master_df[name_col] if name_col else master_df['종목코드']
         
     time_cols = [c for c in master_df.columns if '_' in c]
     for c in time_cols:
@@ -49,6 +47,16 @@ def load_data():
     
     kpi_merged = pd.merge(kospi_df[['종목코드', rs_kpi]].rename(columns={rs_kpi:'RS'}), master_df, on='종목코드', how='inner')
     kdq_merged = pd.merge(kosdaq_df[['종목코드', rs_kdq]].rename(columns={rs_kdq:'RS'}), master_df, on='종목코드', how='inner')
+    
+    # 🎯 [핵심 패치 2] 한국거래소(KRX) 공식 상장종목 API를 호출하여 정확한 한글 기업명으로 1:1 강제 매핑
+    try:
+        krx_df = fdr.StockListing('KRX')
+        krx_dict = dict(zip(krx_df['Code'], krx_df['Name']))
+        kpi_merged['종목명'] = kpi_merged['종목코드'].map(krx_dict).fillna(kpi_merged['종목코드'])
+        kdq_merged['종목명'] = kdq_merged['종목코드'].map(krx_dict).fillna(kdq_merged['종목코드'])
+    except:
+        kpi_merged['종목명'] = kpi_merged['종목코드']
+        kdq_merged['종목명'] = kdq_merged['종목코드']
     
     kpi_merged['RS'] = pd.to_numeric(kpi_merged['RS'], errors='coerce').fillna(0)
     kdq_merged['RS'] = pd.to_numeric(kdq_merged['RS'], errors='coerce').fillna(0)
@@ -83,19 +91,17 @@ def calculate_growth(row):
     y_growth = get_yoy(y_cols, 3)
     return q_growth, y_growth
 
-# 🎯 [모바일 최적화 패치] view_mode 변수를 받아 시계열을 동적으로 제어
 def draw_stock_chart(row, view_mode):
     sym, name, rs = row['종목코드'], row.get('종목명', ''), row.get('RS', 0)
     
     end_date = datetime.date.today()
     
-    # 🎯 사용자의 선택에 따라 차트의 시야(Window)를 동적 조절
     if view_mode == "📱 모바일 모드 (최근 1년 줌인)":
         start_view = end_date - datetime.timedelta(days=365)
     else:
-        start_view = end_date - datetime.timedelta(days=1095) # PC 3년 파노라마
+        start_view = end_date - datetime.timedelta(days=1095) 
         
-    start_fetch = start_view - datetime.timedelta(days=300) # SMA200 선확보
+    start_fetch = start_view - datetime.timedelta(days=300) 
     
     try:
         df_price = fdr.DataReader(sym, start_fetch, end_date)
@@ -185,6 +191,7 @@ def draw_stock_chart(row, view_mode):
     )
     
     fig.update_layout(
+        # 🎯 [핵심 패치 3] 완벽한 한글 종목명 주입
         title=dict(text=f"<b>{name}</b> ({sym}) | RS: {rs:.1f}", font=dict(size=18), x=0.02),
         xaxis=dict(rangeslider=dict(visible=False)),
         yaxis=dict(title="성장률 (%)", side="left", showgrid=False, fixedrange=True, range=[y_left_min, y_left_max]), 
@@ -203,7 +210,6 @@ def draw_stock_chart(row, view_mode):
 st.sidebar.title("🧭 시장 선택")
 market = st.sidebar.radio("트렌드 템플릿 선택", ("KOSPI (코스피)", "KOSDAQ (코스닥)"))
 
-# 🎯 [모바일 최적화 패치] 사이드바에 화면 모드 토글 추가
 st.sidebar.markdown("---")
 view_mode = st.sidebar.radio("🖥️ 화면 모드", ("💻 PC 모드 (최근 3년 파노라마)", "📱 모바일 모드 (최근 1년 줌인)"))
 
@@ -227,7 +233,6 @@ try:
     st.markdown("<style> .stPlotlyChart {border-radius: 10px; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px;} </style>", unsafe_allow_html=True)
     
     for _, row in view_df.iterrows():
-        # 🎯 차트 렌더링 시 사용자가 선택한 view_mode를 함께 전달
         fig = draw_stock_chart(row, view_mode)
         st.plotly_chart(fig, use_container_width=True)
 
