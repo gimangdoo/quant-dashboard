@@ -47,27 +47,20 @@ def load_data():
     kpi_merged = pd.merge(kospi_df[['종목코드', rs_kpi]].rename(columns={rs_kpi:'RS'}), master_df, on='종목코드', how='inner')
     kdq_merged = pd.merge(kosdaq_df[['종목코드', rs_kdq]].rename(columns={rs_kdq:'RS'}), master_df, on='종목코드', how='inner')
     
-    # 🎯 [핵심 패치 2] 무결점 다중 방어막이 탑재된 KRX 공식 상장종목 API 호출
     try:
         krx_df = fdr.StockListing('KRX')
-        # 방어 1: fdr 최신 버전은 'Symbol', 구버전은 'Code'를 사용함. 둘 다 완벽히 대응.
         code_col_krx = 'Symbol' if 'Symbol' in krx_df.columns else 'Code'
         krx_dict = dict(zip(krx_df[code_col_krx].astype(str).str.zfill(6), krx_df['Name']))
-        
         kpi_merged['종목명'] = kpi_merged['종목코드'].map(krx_dict).fillna(kpi_merged['종목코드'])
         kdq_merged['종목명'] = kdq_merged['종목코드'].map(krx_dict).fillna(kdq_merged['종목코드'])
-        
-    except Exception as e:
-        # 방어 2: 클라우드 서버 IP 차단 또는 API 완전 마비 시 GitHub 백업 CSV 파일로 긴급 우회(Fallback)
+    except:
         try:
             backup_df = pd.read_csv("https://raw.githubusercontent.com/corazzon/finance-data-analysis/main/krx.csv")
             code_col_bk = 'Symbol' if 'Symbol' in backup_df.columns else 'Code'
             krx_dict = dict(zip(backup_df[code_col_bk].astype(str).str.zfill(6), backup_df['Name']))
-            
             kpi_merged['종목명'] = kpi_merged['종목코드'].map(krx_dict).fillna(kpi_merged['종목코드'])
             kdq_merged['종목명'] = kdq_merged['종목코드'].map(krx_dict).fillna(kdq_merged['종목코드'])
         except:
-            # 최악의 경우에만 코드 번호 출력
             kpi_merged['종목명'] = kpi_merged['종목코드']
             kdq_merged['종목명'] = kdq_merged['종목코드']
     
@@ -112,9 +105,9 @@ def draw_stock_chart(row, view_mode):
     if view_mode == "📱 모바일 모드 (최근 1년 줌인)":
         start_view = end_date - datetime.timedelta(days=365)
     else:
-        start_view = end_date - datetime.timedelta(days=1095) # PC 3년 파노라마
+        start_view = end_date - datetime.timedelta(days=1095) 
         
-    start_fetch = start_view - datetime.timedelta(days=300) # SMA200 선확보
+    start_fetch = start_view - datetime.timedelta(days=300) 
     
     try:
         df_price = fdr.DataReader(sym, start_fetch, end_date)
@@ -133,43 +126,31 @@ def draw_stock_chart(row, view_mode):
     tickvals = first_days['idx'].tolist()
     ticktext = [f"{d.year}년 {d.month}월" if d.month == 1 else f"{d.month}월" for d in first_days['Date']]
 
-    # 서브플롯 뼈대 생성 (Shared X-axis)
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True, 
         row_heights=[0.8, 0.2], vertical_spacing=0.03,
         specs=[[{"secondary_y": True}], [{"secondary_y": False}]]
     )
     
-    # 1. 🎯 [핵심 패치] 캔들차트 및 이평선 스타일 개조 (Ultra-Thin Border & High Contrast)
+    # 캔들차트 (고화질)
     fig.add_trace(go.Candlestick(
         x=df_view['idx'], open=df_view['Open'], high=df_view['High'], 
         low=df_view['Low'], close=df_view['Close'], name='일봉',
-        
-        # 🎯 경계선을 날카롭게 (초박형 외곽선 설정)
-        increasing_line_color='#FF4136', # 더 선명한 고화질 전용 Red
-        increasing_line_width=1,          # 외곽선 두께를 1px로 고정 (뭉개짐 방지)
-        increasing_fillcolor='#FF4136',    # 내부 꽉 채움
-        
-        decreasing_line_color='#0074D9', # 더 선명한 고화질 전용 Blue
-        decreasing_line_width=1,          # 외곽선 두께를 1px로 고정
-        decreasing_fillcolor='#0074D9',    # 내부 꽉 채움
-        
-        opacity=1.0,                     # 투명도 없음 (선명도 극대화)
+        increasing_line_color='#FF4136', increasing_line_width=1, increasing_fillcolor='#FF4136',
+        decreasing_line_color='#0074D9', decreasing_line_width=1, decreasing_fillcolor='#0074D9',
+        opacity=1.0,
         customdata=df_view['Date'].dt.strftime('%Y-%m-%d'),
         hovertemplate="날짜: %{customdata}<br>시가: %{open:,.0f}원<br>고가: %{high:,.0f}원<br>저가: %{low:,.0f}원<br>종가: %{close:,.0f}원<extra></extra>"
     ), row=1, col=1, secondary_y=True)
 
-    # 이평선 선 두께도 약간 줄여 미니멀리즘 구현
     for sma, color in zip(['SMA50', 'SMA150', 'SMA200'], ['orange', 'purple', 'gray']):
         fig.add_trace(go.Scatter(
             x=df_view['idx'], y=df_view[sma], name=sma, 
-            line=dict(color=color, width=1.0), hoverinfo='skip' # 선 두께 1.5 -> 1.0
+            line=dict(color=color, width=1.0), hoverinfo='skip'
         ), row=1, col=1, secondary_y=True)
 
-    # 2. 성장률 그래프
     q_growth, y_growth = calculate_growth(row)
     growth_values = []
-    
     df_view_sorted = df_view[['Date', 'idx']].sort_values('Date')
 
     if not q_growth.empty:
@@ -178,7 +159,7 @@ def draw_stock_chart(row, view_mode):
             q_growth = pd.merge_asof(q_growth, df_view_sorted, on='Date', direction='nearest')
             fig.add_trace(go.Scatter(
                 x=q_growth['idx'], y=q_growth['Growth'], text=q_growth['Period'], name='분기 증감률',
-                mode='lines+markers', line=dict(color='cyan', width=1.5, dash='dot'), marker=dict(size=8, symbol='diamond'), # 크기 약간 축소
+                mode='lines+markers', line=dict(color='cyan', width=1.5, dash='dot'), marker=dict(size=8, symbol='diamond'),
                 customdata=q_growth['Date'].dt.strftime('%Y-%m-%d'),
                 hovertemplate="결산일: %{customdata}<br>기간: %{text}<br>증감률: %{y:.2f}%<extra></extra>"
             ), row=1, col=1, secondary_y=False)
@@ -190,7 +171,7 @@ def draw_stock_chart(row, view_mode):
             y_growth = pd.merge_asof(y_growth, df_view_sorted, on='Date', direction='nearest')
             fig.add_trace(go.Scatter(
                 x=y_growth['idx'], y=y_growth['Growth'], text=y_growth['Period'], name='연간 증감률',
-                mode='lines+markers', line=dict(color='magenta', width=1.5), marker=dict(size=10, symbol='star'), # 크기 약간 축소
+                mode='lines+markers', line=dict(color='magenta', width=1.5), marker=dict(size=10, symbol='star'),
                 customdata=y_growth['Date'].dt.strftime('%Y-%m-%d'),
                 hovertemplate="결산일: %{customdata}<br>기간: %{text}<br>증감률: %{y:.2f}%<extra></extra>"
             ), row=1, col=1, secondary_y=False)
@@ -203,60 +184,34 @@ def draw_stock_chart(row, view_mode):
     else:
         y_left_min, y_left_max = -100, 100
 
-    # 3. 거래량 차트 (선명도 상승)
+    # 🎯 [핵심 패치 1] 거래량 막대에 고화질 상승(Red)/하락(Blue) 색상 복구
+    vol_colors = ['#FF4136' if c >= o else '#0074D9' for c, o in zip(df_view['Close'], df_view['Open'])]
     fig.add_trace(go.Bar(
         x=df_view['idx'], y=df_view['Volume'], 
-        marker_color='gray', opacity=0.8, name='거래량', # 투명도 주어 배경과 분리
+        marker_color=vol_colors, opacity=0.8, name='거래량', 
         customdata=df_view['Date'].dt.strftime('%Y-%m-%d'),
         hovertemplate="날짜: %{customdata}<br>거래량: %{y:,}주<extra></extra>"
     ), row=2, col=1)
 
-    # 4. 🎯 [핵심 패치 2] 레이아웃 미니멀리즘 (그리드 제거 및 대비 상승)
     max_price = df_view['High'].max()
     max_vol = df_view['Volume'].max()
     
-    # 🎯 모든 X축 세로 눈금선 제거 및 선명도 상승
-    fig.update_xaxes(
-        showticklabels=False, 
-        showgrid=False, # 세로 격자 과감히 제거 (가독성 폭발)
-        zeroline=False, 
-        row=1, col=1
-    )
-    
-    # 하단 X축 라벨도 선명하게
+    fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False, row=1, col=1)
     fig.update_xaxes(
         tickmode='array', tickvals=tickvals, ticktext=ticktext, showticklabels=True, 
-        showgrid=False, # 세로 격자 제거
-        zeroline=False,
-        row=2, col=1
+        showgrid=False, zeroline=False, row=2, col=1
     )
     
-    # 🎯 Y축 가로 눈금선 선명도 조정
-    fig.update_yaxes(
-        showgrid=True, gridwidth=0.5, gridcolor='#F0F0F0', # 아주 희미한 가로 guides만 남김
-        zeroline=False,
-        row=1, col=1
-    )
-    fig.update_yaxes(
-        showgrid=False, # 하단 거래량 격자 제거
-        zeroline=False,
-        row=2, col=1
-    )
+    fig.update_yaxes(showgrid=True, gridwidth=0.5, gridcolor='#F0F0F0', zeroline=False, row=1, col=1)
+    fig.update_yaxes(showgrid=False, zeroline=False, row=2, col=1)
     
     fig.update_layout(
         title=dict(text=f"<b>{name}</b> ({sym}) | RS: {rs:.1f}", font=dict(size=18, color='black'), x=0.02),
         xaxis=dict(rangeslider=dict(visible=False)),
-        
-        # 🎯 주가/거래량 Y축 7/8 스케일링
         yaxis=dict(title="성장률 (%)", side="left", showgrid=False, fixedrange=True, range=[y_left_min, y_left_max]), 
         yaxis2=dict(title="주가 (원)", side="right", fixedrange=True, range=[df_view['Low'].min() * 0.9, max_price * (8/7)]),
         yaxis3=dict(fixedrange=True, range=[0, max_vol * (8/7)]), 
-        
-        # 🎯 [핵심 패치 3] 미니멀리즘 배경 및 Hover 스타일 (High Contrast)
-        plot_bgcolor='white', # 깨끗한 백색 배경으로 대비 극대화
-        paper_bgcolor='white',
-        hovermode='x',        # unified보다 'x'가 좁은 화면에서 덜 번져 보임
-        
+        plot_bgcolor='white', paper_bgcolor='white', hovermode='x',
         legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="right", x=1, font=dict(size=10)),
         margin=dict(l=40, r=40, t=60, b=20),
         height=450
@@ -267,6 +222,11 @@ def draw_stock_chart(row, view_mode):
 # ==========================================
 # 🚀 메인 대시보드 UI 및 그리드 렌더링
 # ==========================================
+
+# 🎯 [핵심 패치 2] Session State를 이용한 페이지 상태 초기화
+if 'page_num' not in st.session_state:
+    st.session_state.page_num = 1
+
 st.sidebar.title("🧭 시장 선택")
 market = st.sidebar.radio("트렌드 템플릿 선택", ("KOSPI (코스피)", "KOSDAQ (코스닥)"))
 
@@ -283,18 +243,35 @@ try:
         
     st.sidebar.markdown(f"**검출된 종목:** 총 {len(target_df)}개")
     
+    # 총 페이지 계산
     items_per_page = 2
     total_pages = (len(target_df) // items_per_page) + (1 if len(target_df) % items_per_page > 0 else 0)
-    page_num = st.sidebar.number_input(f"페이지 이동 (1 ~ {total_pages})", min_value=1, max_value=total_pages, value=1)
     
-    start_idx = (page_num - 1) * items_per_page
+    # 🎯 시장 변경 등으로 total_pages가 줄어들 경우 에러 방지
+    if st.session_state.page_num > total_pages:
+        st.session_state.page_num = max(1, total_pages)
+    
+    # 데이터 슬라이싱
+    start_idx = (st.session_state.page_num - 1) * items_per_page
     view_df = target_df.iloc[start_idx:start_idx + items_per_page]
     
     st.markdown("<style> .stPlotlyChart {border-radius: 10px; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px;} </style>", unsafe_allow_html=True)
     
+    # 1. 메인 차트 렌더링
     for _, row in view_df.iterrows():
         fig = draw_stock_chart(row, view_mode)
         st.plotly_chart(fig, use_container_width=True)
+
+    # 2. 🎯 하단 네비게이션 바 (차트를 다 보고 스크롤 끝에서 직관적으로 페이지 이동)
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        # 이 값을 바꾸면 st.session_state.page_num이 업데이트되며 화면이 재부팅됨
+        st.number_input(
+            f"📄 페이지 이동 (1 ~ {total_pages})", 
+            min_value=1, max_value=total_pages, 
+            key='page_num'
+        )
 
 except Exception as e:
     st.error("🚨 앗! 데이터 연결 또는 렌더링 중 문제가 발생했습니다.")
