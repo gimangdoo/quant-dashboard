@@ -83,14 +83,19 @@ def calculate_growth(row):
     y_growth = get_yoy(y_cols, 3)
     return q_growth, y_growth
 
-def draw_stock_chart(row):
+# 🎯 [모바일 최적화 패치] view_mode 변수를 받아 시계열을 동적으로 제어
+def draw_stock_chart(row, view_mode):
     sym, name, rs = row['종목코드'], row.get('종목명', ''), row.get('RS', 0)
     
     end_date = datetime.date.today()
-    # 🎯 [핵심 패치] 시야를 1년(365일)에서 3년(1095일)으로 파노라마 확장!
-    start_view = end_date - datetime.timedelta(days=1095) 
-    # SMA200 계산을 위해 시작점으로부터 300일 이전 데이터 선확보
-    start_fetch = start_view - datetime.timedelta(days=300)
+    
+    # 🎯 사용자의 선택에 따라 차트의 시야(Window)를 동적 조절
+    if view_mode == "📱 모바일 모드 (최근 1년 줌인)":
+        start_view = end_date - datetime.timedelta(days=365)
+    else:
+        start_view = end_date - datetime.timedelta(days=1095) # PC 3년 파노라마
+        
+    start_fetch = start_view - datetime.timedelta(days=300) # SMA200 선확보
     
     try:
         df_price = fdr.DataReader(sym, start_fetch, end_date)
@@ -146,7 +151,6 @@ def draw_stock_chart(row):
             growth_values.extend(q_growth['Growth'].tolist())
 
     if not y_growth.empty:
-        # 🎯 3년 치 캔들 차트 범위 안에 3년 치 연간 데이터가 완벽히 포섭됩니다!
         y_growth = y_growth[y_growth['Date'] >= pd.to_datetime(start_view)].sort_values('Date')
         if not y_growth.empty:
             y_growth = pd.merge_asof(y_growth, df_view_sorted, on='Date', direction='nearest')
@@ -176,8 +180,6 @@ def draw_stock_chart(row):
     max_vol = df_view['Volume'].max()
     
     fig.update_xaxes(showticklabels=False, row=1, col=1)
-    
-    # 🎯 3년 치 월별 라벨도 거래량 차트 하단에 깔끔하게 자동 정렬됩니다.
     fig.update_xaxes(
         tickmode='array', tickvals=tickvals, ticktext=ticktext, showticklabels=True, row=2, col=1
     )
@@ -201,6 +203,10 @@ def draw_stock_chart(row):
 st.sidebar.title("🧭 시장 선택")
 market = st.sidebar.radio("트렌드 템플릿 선택", ("KOSPI (코스피)", "KOSDAQ (코스닥)"))
 
+# 🎯 [모바일 최적화 패치] 사이드바에 화면 모드 토글 추가
+st.sidebar.markdown("---")
+view_mode = st.sidebar.radio("🖥️ 화면 모드", ("💻 PC 모드 (최근 3년 파노라마)", "📱 모바일 모드 (최근 1년 줌인)"))
+
 try:
     kpi_df, kdq_df = load_data()
     target_df = kpi_df if "KOSPI" in market else kdq_df
@@ -221,7 +227,8 @@ try:
     st.markdown("<style> .stPlotlyChart {border-radius: 10px; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px;} </style>", unsafe_allow_html=True)
     
     for _, row in view_df.iterrows():
-        fig = draw_stock_chart(row)
+        # 🎯 차트 렌더링 시 사용자가 선택한 view_mode를 함께 전달
+        fig = draw_stock_chart(row, view_mode)
         st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
