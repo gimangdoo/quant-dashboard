@@ -216,7 +216,6 @@ try:
         
     st.sidebar.markdown(f"**검출된 종목:** 총 {len(target_df)}개")
     
-    # 🎯 [피드백 반영] 화면당 2개 종목 페이징
     items_per_page = 2
     total_pages = (len(target_df) // items_per_page) + (1 if len(target_df) % items_per_page > 0 else 0)
     page_num = st.sidebar.number_input(f"페이지 이동 (1 ~ {total_pages})", min_value=1, max_value=total_pages, value=1)
@@ -224,7 +223,6 @@ try:
     start_idx = (page_num - 1) * items_per_page
     view_df = target_df.iloc[start_idx:start_idx + items_per_page]
     
-    # 🎯 [피드백 반영] 세로형 1열 그리드 렌더링
     st.markdown("<style> .stPlotlyChart {border-radius: 10px; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px;} </style>", unsafe_allow_html=True)
     
     for _, row in view_df.iterrows():
@@ -232,4 +230,5 @@ try:
         st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
-    st.error(f"대시보드 초기화 실패: {e}")
+    st.error("🚨 앗! 데이터 연결 또는 렌더링 중 문제가 발생했습니다. 아래의 추적 로그(엑스레이)를 확인하세요.")
+    st.exception(e) # 👈 핵심: 에러의 엑스레이를 화면에 적나라하게 띄움
