@@ -97,10 +97,10 @@ def calculate_growth(row):
     return q_growth, y_growth
 
 def draw_stock_chart(row):
-    """ Plotly 하이엔드 차트 렌더링 엔진 (다이나믹 스케일링, 한글 툴팁) """
+    """ Plotly 하이엔드 차트 렌더링 엔진 (다이나믹 스케일링, 비거래일 제거, 한글 툴팁) """
     sym, name, rs = row['종목코드'], row.get('종목명', ''), row.get('RS', 0)
     
-    # 1. 주가 데이터 로드
+    # 1. 주가 데이터 로드 및 전처리
     end_date = datetime.date.today()
     start_fetch = end_date - datetime.timedelta(days=500)
     start_view = end_date - datetime.timedelta(days=365)
@@ -113,78 +113,96 @@ def draw_stock_chart(row):
     df_price['SMA50'] = df_price['Close'].rolling(window=50).mean()
     df_price['SMA150'] = df_price['Close'].rolling(window=150).mean()
     df_price['SMA200'] = df_price['Close'].rolling(window=200).mean()
-    df_view = df_price[df_price.index >= pd.to_datetime(start_view)]
+    df_view = df_price[df_price.index >= pd.to_datetime(start_view)].reset_index() # 🎯 [핵심 패치] 인덱스 리셋하여 정수형 시계열 확보
+
+    # 🎯 [핵심 패치] 비거래일 제외하고 연속적인 데이터 흐름 확보
+    x_indices = np.arange(len(df_view)) # 정수 인덱스 (0, 1, 2, ...)
+    df_view['idx'] = x_indices
+    df_view['DayOfWeek'] = df_view['Date'].dt.day_name() # 요일 라벨 확보
     
-    # 뼈대 생성
+    # 뼈대 생성 (Shared X-axis)
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True, 
         row_heights=[0.8, 0.2], vertical_spacing=0.03,
         specs=[[{"secondary_y": True}], [{"secondary_y": False}]]
     )
     
-    # 3. 캔들차트 및 이평선 (우측 가격 Y축)
+    # 2. 캔들차트 및 이평선 (우측 가격 Y축, X축은idx 사용)
     fig.add_trace(go.Candlestick(
-        x=df_view.index, open=df_view['Open'], high=df_view['High'], 
+        x=df_view['idx'], open=df_view['Open'], high=df_view['High'], 
         low=df_view['Low'], close=df_view['Close'], name='일봉',
         increasing_line_color='red', decreasing_line_color='blue'
     ), row=1, col=1, secondary_y=True)
 
     for sma, color in zip(['SMA50', 'SMA150', 'SMA200'], ['orange', 'purple', 'gray']):
-        fig.add_trace(go.Scatter(x=df_view.index, y=df_view[sma], name=sma, line=dict(color=color, width=1.5)), row=1, col=1, secondary_y=True)
+        fig.add_trace(go.Scatter(x=df_view['idx'], y=df_view[sma], name=sma, line=dict(color=color, width=1.5)), row=1, col=1, secondary_y=True)
 
-    # 4. 성장률 그래프 (좌측 % Y축) - 다이나믹 스케일링 준비
+    # 3. 성장률 그래프 (좌측 % Y축) - 다이나믹 스케일링 준비 및 X축idx 동기화
     q_growth, y_growth = calculate_growth(row)
-    
-    # 🎯 [피드백 반영] 성장률 Y축 다이나믹 스케일링을 위한 데이터 수집
     growth_values = []
     
     if not q_growth.empty:
         q_growth = q_growth[q_growth['Date'] >= pd.to_datetime(start_view)] 
         if not q_growth.empty:
-            fig.add_trace(go.Scatter(
-                x=q_growth['Date'], y=q_growth['Growth'], text=q_growth['Period'], name='분기 증감률',
-                mode='lines+markers', line=dict(color='cyan', width=2, dash='dot'), marker=dict(size=10, symbol='diamond')
-            ), row=1, col=1, secondary_y=False)
-            growth_values.extend(q_growth['Growth'].tolist())
+            # 🎯 [핵심 패치] 주가 데이터의 날짜와 성장률 결산일을 매핑하여 정확한 정수idx 확보
+            q_growth = q_growth.merge(df_view[['Date', 'idx']], on='Date', how='inner')
+            if not q_growth.empty:
+                fig.add_trace(go.Scatter(
+                    x=q_growth['idx'], y=q_growth['Growth'], text=q_growth['Period'], name='분기 증감률',
+                    mode='lines+markers', line=dict(color='cyan', width=2, dash='dot'), marker=dict(size=10, symbol='diamond')
+                ), row=1, col=1, secondary_y=False)
+                growth_values.extend(q_growth['Growth'].tolist())
 
     if not y_growth.empty:
         y_growth = y_growth[y_growth['Date'] >= pd.to_datetime(start_view)]
         if not y_growth.empty:
-            fig.add_trace(go.Scatter(
-                x=y_growth['Date'], y=y_growth['Growth'], text=y_growth['Period'], name='연간 증감률',
-                mode='lines+markers', line=dict(color='magenta', width=2), marker=dict(size=12, symbol='star')
-            ), row=1, col=1, secondary_y=False)
-            growth_values.extend(y_growth['Growth'].tolist())
+            y_growth = y_growth.merge(df_view[['Date', 'idx']], on='Date', how='inner')
+            if not y_growth.empty:
+                fig.add_trace(go.Scatter(
+                    x=y_growth['idx'], y=y_growth['Growth'], text=y_growth['Period'], name='연간 증감률',
+                    mode='lines+markers', line=dict(color='magenta', width=2), marker=dict(size=12, symbol='star')
+                ), row=1, col=1, secondary_y=False)
+                growth_values.extend(y_growth['Growth'].tolist())
 
-    # 🎯 [피드백 반영] 성장률 Y축 다이나믹 자동 범위 계산 (Padding 10% 추가)
+    # 🎯 [피드백 반영] 성장률 Y축 다이나믹 자동 범위 계산 (데이터를 꽉 차게 표시)
     if growth_values:
         g_min = min(growth_values)
         g_max = max(growth_values)
         g_range = g_max - g_min if g_max != g_min else 100
+        # 가독성을 위한 상하단 10% 여백(Padding) 추가
         y_left_min = g_min - (g_range * 0.1)
         y_left_max = g_max + (g_range * 0.1)
-        fixed_y_left = False # 자동 범위 사용
     else:
         y_left_min, y_left_max = -100, 100
-        fixed_y_left = False
 
-    # 5. 거래량 차트
+    # 4. 거래량 차트 (하단)
+    colors = ['red' if c >= o else 'blue' for c, o in zip(df_view['Close'], df_view['Open'])]
     fig.add_trace(go.Bar(
-        x=df_view.index, y=df_view['Volume'], marker_color='gray', name='거래량'
+        x=df_view['idx'], y=df_view['Volume'], marker_color=colors, name='거래량'
     ), row=2, col=1)
 
-    # 6. 레이아웃 제어 (스케일링 적용, 주가 Y축 7/8 스케일)
+    # 5. 레이아웃 및 X축 요일 라벨 설정 (최고점 7/8 스케일링)
     max_price = df_view['High'].max()
     max_vol = df_view['Volume'].max()
+    
+    # 🎯 [핵심 패치] 비거래일 제거된categorical X축 요일 라벨 설정
+    fig.update_xaxes(
+        tickmode='array',
+        tickvals=df_view[::10]['idx'], # 10개마다 라벨 표시 (가독성 확보)
+        ticktext=df_view[::10]['DayOfWeek'], # 요일 라벨 적용
+        showticklabels=True,
+        row=1, col=1
+    )
     
     fig.update_layout(
         # 🎯 [피드백 반영] 차트 제목 종목명으로 변경
         title=dict(text=f"<b>{name}</b> ({sym}) | RS: {rs:.1f}", font=dict(size=18), x=0.02),
-        xaxis=dict(range=[start_view, end_date], rangeslider=dict(visible=False), type='date'),
+        xaxis=dict(rangeslider=dict(visible=False)),
         
-        # 🎯 [피드백 반영] 좌측 Y축 다이나믹 범위 설정
+        # 🎯 [피드백 반영] 좌측 Y축 다이나믹 자동 범위 설정
         yaxis=dict(title="성장률 (%)", side="left", showgrid=False, fixedrange=True, range=[y_left_min, y_left_max]), 
         
+        # 우측 Y축 스케일링 (최고점 7/8 지점 고정)
         yaxis2=dict(title="주가 (원)", side="right", fixedrange=True, range=[df_view['Low'].min() * 0.9, max_price * (8/7)]),
         yaxis3=dict(fixedrange=True, range=[0, max_vol * (8/7)]), 
         legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="right", x=1, font=dict(size=10)),
@@ -193,10 +211,23 @@ def draw_stock_chart(row):
         hovermode='x unified'
     )
     
-    # 🎯 [피드백 반영] 한글 툴팁(hover) 강제 매핑
-    fig.update_traces(hovertemplate="날짜: %{x|%Y-%m-%d}<br>시가: %{open:,.0f}원<br>고가: %{high:,.0f}원<br>저가: %{low:,.0f}원<br>종가: %{close:,.0f}원<extra></extra>", selector=dict(type="candlestick"))
-    fig.update_traces(hovertemplate="결산일: %{x|%Y-%m-%d}<br>기간: %{text}<br>증감률: %{y:.2f}%<extra></extra>", selector=dict(mode="lines+markers"))
-    fig.update_traces(hovertemplate="날짜: %{x|%Y-%m-%d}<br>거래량: %{y:,}주<extra></extra>", selector=dict(type="bar"))
+    # 🎯 [핵심 패치] 한글 툴팁(hover) 강제 매핑
+    # 데이터 인덱스('idx')가 아닌 실제 날짜와 증감률을 표시하도록 포맷팅
+    fig.update_traces(
+        hovertemplate="날짜: %{customdata|%Y-%m-%d}<br>시가: %{open:,.0f}원<br>고가: %{high:,.0f}원<br>저가: %{low:,.0f}원<br>종가: %{close:,.0f}원<extra></extra>",
+        customdata=df_view['Date'], # customdata로 실제 날짜 날인
+        selector=dict(type="candlestick")
+    )
+    fig.update_traces(
+        hovertemplate="결산일: %{customdata|%Y-%m-%d}<br>기간: %{text}<br>증감률: %{y:.2f}%<extra></extra>",
+        customdata=df_view[['Date']], # 데이터 조인 시 이미 customdata가 날짜로 세팅됨
+        selector=dict(mode="lines+markers")
+    )
+    fig.update_traces(
+        hovertemplate="날짜: %{customdata|%Y-%m-%d}<br>거래량: %{y:,}주<extra></extra>",
+        customdata=df_view['Date'],
+        selector=dict(type="bar")
+    )
     
     return fig
 
@@ -216,6 +247,7 @@ try:
         
     st.sidebar.markdown(f"**검출된 종목:** 총 {len(target_df)}개")
     
+    # 🎯 [피드백 반영] 화면당 2개 종목 페이징 및 세로형 1열 그리드 렌더링
     items_per_page = 2
     total_pages = (len(target_df) // items_per_page) + (1 if len(target_df) % items_per_page > 0 else 0)
     page_num = st.sidebar.number_input(f"페이지 이동 (1 ~ {total_pages})", min_value=1, max_value=total_pages, value=1)
@@ -225,10 +257,10 @@ try:
     
     st.markdown("<style> .stPlotlyChart {border-radius: 10px; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px;} </style>", unsafe_allow_html=True)
     
+    # 🎯 [피드백 반영] 세로형 1열 그리드 렌더링
     for _, row in view_df.iterrows():
         fig = draw_stock_chart(row)
         st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
-    st.error("🚨 앗! 데이터 연결 또는 렌더링 중 문제가 발생했습니다. 아래의 추적 로그(엑스레이)를 확인하세요.")
-    st.exception(e) # 👈 핵심: 에러의 엑스레이를 화면에 적나라하게 띄움
+    st.error(f"대시보드 초기화 실패: {e}")
