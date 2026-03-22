@@ -112,9 +112,9 @@ def draw_stock_chart(row, view_mode):
     if view_mode == "📱 모바일 모드 (최근 1년 줌인)":
         start_view = end_date - datetime.timedelta(days=365)
     else:
-        start_view = end_date - datetime.timedelta(days=1095) 
+        start_view = end_date - datetime.timedelta(days=1095) # PC 3년 파노라마
         
-    start_fetch = start_view - datetime.timedelta(days=300) 
+    start_fetch = start_view - datetime.timedelta(days=300) # SMA200 선확보
     
     try:
         df_price = fdr.DataReader(sym, start_fetch, end_date)
@@ -133,25 +133,40 @@ def draw_stock_chart(row, view_mode):
     tickvals = first_days['idx'].tolist()
     ticktext = [f"{d.year}년 {d.month}월" if d.month == 1 else f"{d.month}월" for d in first_days['Date']]
 
+    # 서브플롯 뼈대 생성 (Shared X-axis)
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True, 
         row_heights=[0.8, 0.2], vertical_spacing=0.03,
         specs=[[{"secondary_y": True}], [{"secondary_y": False}]]
     )
     
+    # 1. 🎯 [핵심 패치] 캔들차트 및 이평선 스타일 개조 (Ultra-Thin Border & High Contrast)
     fig.add_trace(go.Candlestick(
         x=df_view['idx'], open=df_view['Open'], high=df_view['High'], 
         low=df_view['Low'], close=df_view['Close'], name='일봉',
-        increasing_line_color='red', decreasing_line_color='blue',
+        
+        # 🎯 경계선을 날카롭게 (초박형 외곽선 설정)
+        increasing_line_color='#FF4136', # 더 선명한 고화질 전용 Red
+        increasing_line_width=1,          # 외곽선 두께를 1px로 고정 (뭉개짐 방지)
+        increasing_fillcolor='#FF4136',    # 내부 꽉 채움
+        
+        decreasing_line_color='#0074D9', # 더 선명한 고화질 전용 Blue
+        decreasing_line_width=1,          # 외곽선 두께를 1px로 고정
+        decreasing_fillcolor='#0074D9',    # 내부 꽉 채움
+        
+        opacity=1.0,                     # 투명도 없음 (선명도 극대화)
         customdata=df_view['Date'].dt.strftime('%Y-%m-%d'),
         hovertemplate="날짜: %{customdata}<br>시가: %{open:,.0f}원<br>고가: %{high:,.0f}원<br>저가: %{low:,.0f}원<br>종가: %{close:,.0f}원<extra></extra>"
     ), row=1, col=1, secondary_y=True)
 
+    # 이평선 선 두께도 약간 줄여 미니멀리즘 구현
     for sma, color in zip(['SMA50', 'SMA150', 'SMA200'], ['orange', 'purple', 'gray']):
         fig.add_trace(go.Scatter(
-            x=df_view['idx'], y=df_view[sma], name=sma, line=dict(color=color, width=1.5), hoverinfo='skip'
+            x=df_view['idx'], y=df_view[sma], name=sma, 
+            line=dict(color=color, width=1.0), hoverinfo='skip' # 선 두께 1.5 -> 1.0
         ), row=1, col=1, secondary_y=True)
 
+    # 2. 성장률 그래프
     q_growth, y_growth = calculate_growth(row)
     growth_values = []
     
@@ -163,7 +178,7 @@ def draw_stock_chart(row, view_mode):
             q_growth = pd.merge_asof(q_growth, df_view_sorted, on='Date', direction='nearest')
             fig.add_trace(go.Scatter(
                 x=q_growth['idx'], y=q_growth['Growth'], text=q_growth['Period'], name='분기 증감률',
-                mode='lines+markers', line=dict(color='cyan', width=2, dash='dot'), marker=dict(size=10, symbol='diamond'),
+                mode='lines+markers', line=dict(color='cyan', width=1.5, dash='dot'), marker=dict(size=8, symbol='diamond'), # 크기 약간 축소
                 customdata=q_growth['Date'].dt.strftime('%Y-%m-%d'),
                 hovertemplate="결산일: %{customdata}<br>기간: %{text}<br>증감률: %{y:.2f}%<extra></extra>"
             ), row=1, col=1, secondary_y=False)
@@ -175,7 +190,7 @@ def draw_stock_chart(row, view_mode):
             y_growth = pd.merge_asof(y_growth, df_view_sorted, on='Date', direction='nearest')
             fig.add_trace(go.Scatter(
                 x=y_growth['idx'], y=y_growth['Growth'], text=y_growth['Period'], name='연간 증감률',
-                mode='lines+markers', line=dict(color='magenta', width=2), marker=dict(size=12, symbol='star'),
+                mode='lines+markers', line=dict(color='magenta', width=1.5), marker=dict(size=10, symbol='star'), # 크기 약간 축소
                 customdata=y_growth['Date'].dt.strftime('%Y-%m-%d'),
                 hovertemplate="결산일: %{customdata}<br>기간: %{text}<br>증감률: %{y:.2f}%<extra></extra>"
             ), row=1, col=1, secondary_y=False)
@@ -188,30 +203,63 @@ def draw_stock_chart(row, view_mode):
     else:
         y_left_min, y_left_max = -100, 100
 
-    colors = ['red' if c >= o else 'blue' for c, o in zip(df_view['Close'], df_view['Open'])]
+    # 3. 거래량 차트 (선명도 상승)
     fig.add_trace(go.Bar(
-        x=df_view['idx'], y=df_view['Volume'], marker_color=colors, name='거래량',
+        x=df_view['idx'], y=df_view['Volume'], 
+        marker_color='gray', opacity=0.8, name='거래량', # 투명도 주어 배경과 분리
         customdata=df_view['Date'].dt.strftime('%Y-%m-%d'),
         hovertemplate="날짜: %{customdata}<br>거래량: %{y:,}주<extra></extra>"
     ), row=2, col=1)
 
+    # 4. 🎯 [핵심 패치 2] 레이아웃 미니멀리즘 (그리드 제거 및 대비 상승)
     max_price = df_view['High'].max()
     max_vol = df_view['Volume'].max()
     
-    fig.update_xaxes(showticklabels=False, row=1, col=1)
+    # 🎯 모든 X축 세로 눈금선 제거 및 선명도 상승
     fig.update_xaxes(
-        tickmode='array', tickvals=tickvals, ticktext=ticktext, showticklabels=True, row=2, col=1
+        showticklabels=False, 
+        showgrid=False, # 세로 격자 과감히 제거 (가독성 폭발)
+        zeroline=False, 
+        row=1, col=1
+    )
+    
+    # 하단 X축 라벨도 선명하게
+    fig.update_xaxes(
+        tickmode='array', tickvals=tickvals, ticktext=ticktext, showticklabels=True, 
+        showgrid=False, # 세로 격자 제거
+        zeroline=False,
+        row=2, col=1
+    )
+    
+    # 🎯 Y축 가로 눈금선 선명도 조정
+    fig.update_yaxes(
+        showgrid=True, gridwidth=0.5, gridcolor='#F0F0F0', # 아주 희미한 가로 guides만 남김
+        zeroline=False,
+        row=1, col=1
+    )
+    fig.update_yaxes(
+        showgrid=False, # 하단 거래량 격자 제거
+        zeroline=False,
+        row=2, col=1
     )
     
     fig.update_layout(
-        title=dict(text=f"<b>{name}</b> ({sym}) | RS: {rs:.1f}", font=dict(size=18), x=0.02),
+        title=dict(text=f"<b>{name}</b> ({sym}) | RS: {rs:.1f}", font=dict(size=18, color='black'), x=0.02),
         xaxis=dict(rangeslider=dict(visible=False)),
+        
+        # 🎯 주가/거래량 Y축 7/8 스케일링
         yaxis=dict(title="성장률 (%)", side="left", showgrid=False, fixedrange=True, range=[y_left_min, y_left_max]), 
         yaxis2=dict(title="주가 (원)", side="right", fixedrange=True, range=[df_view['Low'].min() * 0.9, max_price * (8/7)]),
         yaxis3=dict(fixedrange=True, range=[0, max_vol * (8/7)]), 
+        
+        # 🎯 [핵심 패치 3] 미니멀리즘 배경 및 Hover 스타일 (High Contrast)
+        plot_bgcolor='white', # 깨끗한 백색 배경으로 대비 극대화
+        paper_bgcolor='white',
+        hovermode='x',        # unified보다 'x'가 좁은 화면에서 덜 번져 보임
+        
         legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="right", x=1, font=dict(size=10)),
         margin=dict(l=40, r=40, t=60, b=20),
-        height=450, hovermode='x unified'
+        height=450
     )
     
     return fig
