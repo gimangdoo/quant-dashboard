@@ -11,9 +11,9 @@ import gspread
 st.set_page_config(page_title="Quant Vertical Screener", layout="wide", initial_sidebar_state="expanded")
 
 # 🚨 [사용자 입력 필수] 본인의 구글 시트 URL 3개를 정확히 입력하세요!
-URL_MASTER_DB = '여기에_마스터DB_주소를_입력하세요'
-URL_SOURCE_KOSPI = '여기에_코스피_트렌드템플릿_주소를_입력하세요'
-URL_SOURCE_KOSDAQ = '여기에_코스닥_트렌드템플릿_주소를_입력하세요'
+URL_MASTER_DB = 'https://docs.google.com/spreadsheets/d/1a1--xht5ahEVtZH8SjpOakwHVoMSMJtIw9T1HTanw1M/edit?gid=0#gid=0'
+URL_SOURCE_KOSPI = 'https://docs.google.com/spreadsheets/d/1GHB9J_hN13cBSXVCeilBuXFDoBSQMIboxSBzZVtr7KE/edit?gid=0#gid=0'
+URL_SOURCE_KOSDAQ = 'https://docs.google.com/spreadsheets/d/1gOwo4Z_vQhdCab3XZ0RBtOzRUdR1XGg3NhAtAN18Ikg/edit?gid=0#gid=0'
 
 @st.cache_data(ttl=3600)
 def load_data():
