@@ -6,6 +6,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import FinanceDataReader as fdr
 import gspread
+import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # ⚙️ 페이지 설정
 st.set_page_config(page_title="Quant Vertical Screener", layout="wide", initial_sidebar_state="expanded")
@@ -97,7 +99,6 @@ def calculate_growth(row):
     y_growth = get_yoy(y_cols, 3)
     return q_growth, y_growth
 
-# 🎯 [새로운 기능] 상단 벤치마크 지수(KOSPI/KOSDAQ) 차트 렌더링 함수
 def draw_index_chart(market_name, view_mode):
     sym = 'KS11' if "KOSPI" in market_name else 'KQ11'
     name = "KOSPI 벤치마크 지수" if "KOSPI" in market_name else "KOSDAQ 벤치마크 지수"
@@ -136,7 +137,7 @@ def draw_index_chart(market_name, view_mode):
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True, 
         row_heights=[0.8, 0.2], vertical_spacing=0.03,
-        specs=[[{"secondary_y": False}], [{"secondary_y": False}]] # 지수는 이중축 불필요
+        specs=[[{"secondary_y": False}], [{"secondary_y": False}]] 
     )
     
     custom_data = np.stack((
@@ -176,15 +177,16 @@ def draw_index_chart(market_name, view_mode):
         showgrid=False, zeroline=False, row=2, col=1
     )
     
+    # 🎯 [핵심 패치] 지수 차트의 Y축 고정(fixedrange) 잠금 해제 (False)
     fig.update_yaxes(showgrid=True, gridwidth=0.5, gridcolor='#F0F0F0', zeroline=False, row=1, col=1)
     fig.update_yaxes(showgrid=False, zeroline=False, row=2, col=1)
     
     fig.update_layout(
         title=dict(text=f"<b>📊 {name}</b>", font=dict(size=20, color='#2c3e50'), x=0.02),
         xaxis=dict(rangeslider=dict(visible=False)),
-        yaxis=dict(title="지수", side="right", fixedrange=True, range=[df_view['Low'].min() * 0.9, max_price * (8/7)]),
-        yaxis2=dict(fixedrange=True, range=[0, max_vol * (8/7)]), 
-        plot_bgcolor='#FAFAFA', paper_bgcolor='#FAFAFA', hovermode='x', # 지수 차트는 배경을 약간 어둡게 주어 구분
+        yaxis=dict(title="지수", side="right", fixedrange=False, range=[df_view['Low'].min() * 0.9, max_price * (8/7)]),
+        yaxis2=dict(fixedrange=False, range=[0, max_vol * (8/7)]), 
+        plot_bgcolor='#FAFAFA', paper_bgcolor='#FAFAFA', hovermode='x',
         legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="right", x=1, font=dict(size=10)),
         margin=dict(l=40, r=40, t=60, b=20), height=450
     )
@@ -309,9 +311,12 @@ def draw_stock_chart(row, view_mode):
     fig.update_layout(
         title=dict(text=f"<b>{name}</b> ({sym}) | RS: {rs:.1f}", font=dict(size=18, color='black'), x=0.02),
         xaxis=dict(rangeslider=dict(visible=False)),
-        yaxis=dict(title="성장률 (%)", side="left", showgrid=False, fixedrange=True, range=[y_left_min, y_left_max]), 
-        yaxis2=dict(title="주가 (원)", side="right", fixedrange=True, range=[df_view['Low'].min() * 0.9, max_price * (8/7)]),
-        yaxis3=dict(fixedrange=True, range=[0, max_vol * (8/7)]), 
+        
+        # 🎯 [핵심 패치 2] 개별 종목 차트의 모든 Y축 고정(fixedrange) 잠금 해제 (False)
+        yaxis=dict(title="성장률 (%)", side="left", showgrid=False, fixedrange=False, range=[y_left_min, y_left_max]), 
+        yaxis2=dict(title="주가 (원)", side="right", fixedrange=False, range=[df_view['Low'].min() * 0.9, max_price * (8/7)]),
+        yaxis3=dict(fixedrange=False, range=[0, max_vol * (8/7)]), 
+        
         plot_bgcolor='white', paper_bgcolor='white', hovermode='x',
         legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="right", x=1, font=dict(size=10)),
         margin=dict(l=40, r=40, t=60, b=20), height=450
@@ -322,13 +327,11 @@ def draw_stock_chart(row, view_mode):
 # 🚀 메인 대시보드 UI 및 렌더링
 # ==========================================
 
-# 🎯 [핵심 패치 1] 세션 상태 페이징 롤백 (초기화)
 if 'page_num' not in st.session_state:
     st.session_state.page_num = 1
 
 st.sidebar.title("🧭 시장 선택")
 
-# 시장이 변경되면 1페이지로 리셋하는 콜백
 def reset_page():
     st.session_state.page_num = 1
 
@@ -349,13 +352,12 @@ try:
     
     st.markdown("<style> .stPlotlyChart {border-radius: 10px; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px;} </style>", unsafe_allow_html=True)
     
-    # 🎯 [새로운 기능] 최상단 벤치마크 지수 렌더링
     index_fig = draw_index_chart(market, view_mode)
     if index_fig:
-        st.plotly_chart(index_fig, use_container_width=True)
-        st.markdown("<hr style='border: 1px solid #e0e0e0; margin: 30px 0;'>", unsafe_allow_html=True) # 구분선
+        # 🎯 [핵심 패치 3] Streamlit 렌더링 엔진에 휠 줌(scrollZoom: True) 권한 부여
+        st.plotly_chart(index_fig, use_container_width=True, config={'scrollZoom': True})
+        st.markdown("<hr style='border: 1px solid #e0e0e0; margin: 30px 0;'>", unsafe_allow_html=True) 
 
-    # 🎯 [핵심 패치 2] 1페이지당 4개 종목으로 증가 & 하단 페이징 복구
     items_per_page = 4
     total_pages = (len(target_df) // items_per_page) + (1 if len(target_df) % items_per_page > 0 else 0)
     
@@ -365,20 +367,16 @@ try:
     start_idx = (st.session_state.page_num - 1) * items_per_page
     view_df = target_df.iloc[start_idx:start_idx + items_per_page]
     
-    import google.generativeai as genai
-    from google.generativeai.types import HarmCategory, HarmBlockThreshold
-
-    # 🎯 [핵심 패치] 개별 종목 차트 렌더링 및 심층 사고 AI(Pro Model) 주입
     for _, row in view_df.iterrows():
         sym = row['종목코드']
         name = row.get('종목명', sym)
         rs = row.get('RS', 0)
         
-        # 1. 차트 렌더링
         fig = draw_stock_chart(row, view_mode)
-        st.plotly_chart(fig, use_container_width=True)
         
-        # 2. 하단 다이렉트 링크 영역
+        # 🎯 [핵심 패치 4] 개별 차트 렌더링에도 휠 줌(scrollZoom: True) 권한 부여
+        st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
+        
         st.markdown(f"""
         <div style="text-align: right; margin-top: -25px; margin-bottom: 10px; padding-right: 40px;">
             <a href="https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{sym}" target="_blank" 
@@ -392,7 +390,6 @@ try:
         </div>
         """, unsafe_allow_html=True)
         
-        # 3. 🤖 내장형 Gem (실시간 검색 + 심층 사고 모델) 호출 버튼
         col_empty, col_btn = st.columns([4, 1.5]) 
         with col_btn:
             if st.button(f"🧠 {name} 심층 분석 가동", key=f"ai_{sym}"):
@@ -417,14 +414,12 @@ try:
                         - 현재 주식 시장의 최신 매크로 환경과 주어진 퀀트 데이터(RS)를 결합하여 최종 논리 전개.
                         """
                         
-                        # 🎯 [핵심 패치 1] tools 파라미터에 'google_search_retrieval'을 부여하여 모델이 인터넷에 접속하도록 허가
                         model = genai.GenerativeModel(
                             model_name='gemini-1.5-pro',
                             system_instruction=analyst_persona,
                             tools='google_search_retrieval' 
                         )
                         
-                        # 🎯 [핵심 패치 2] 프롬프트에 '검색 강제' 명령 추가
                         prompt = f"""
                         현재 스크리닝 시스템에 포착된 한국 주식은 '{name}' (종목코드: {sym})입니다.
                         상대강도(RS) 점수는 {rs:.1f}점입니다.
@@ -452,8 +447,9 @@ try:
                         
                     except Exception as e:
                         st.error(f"API 호출 실패 (키 설정 또는 네트워크 문제): {e}")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
 
-    # 하단 네비게이션
     st.markdown("---")
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
