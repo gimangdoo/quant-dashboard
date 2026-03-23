@@ -415,7 +415,7 @@ try:
                         """
                         
                         model = genai.GenerativeModel(
-                            model_name='gemini-1.5-pro',
+                            model_name='gemini-1.5-pro-latest',
                             system_instruction=analyst_persona,
                             tools='google_search_retrieval' 
                         )
