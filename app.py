@@ -365,10 +365,93 @@ try:
     start_idx = (st.session_state.page_num - 1) * items_per_page
     view_df = target_df.iloc[start_idx:start_idx + items_per_page]
     
-    # 4개의 개별 종목 차트 렌더링
+    import google.generativeai as genai
+    from google.generativeai.types import HarmCategory, HarmBlockThreshold
+
+    # 🎯 [핵심 패치] 개별 종목 차트 렌더링 및 심층 사고 AI(Pro Model) 주입
     for _, row in view_df.iterrows():
+        sym = row['종목코드']
+        name = row.get('종목명', sym)
+        rs = row.get('RS', 0)
+        
+        # 1. 차트 렌더링
         fig = draw_stock_chart(row, view_mode)
         st.plotly_chart(fig, use_container_width=True)
+        
+        # 2. 하단 다이렉트 링크 영역
+        st.markdown(f"""
+        <div style="text-align: right; margin-top: -25px; margin-bottom: 10px; padding-right: 40px;">
+            <a href="https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{sym}" target="_blank" 
+               style="text-decoration: none; font-size: 12px; color: #555; background-color: #f8f9fa; border: 1px solid #ddd; padding: 4px 10px; border-radius: 4px; margin-right: 8px; font-weight: bold;">
+               📊 FnGuide
+            </a>
+            <a href="https://finance.naver.com/item/main.naver?code={sym}" target="_blank" 
+               style="text-decoration: none; font-size: 12px; color: #555; background-color: #f8f9fa; border: 1px solid #ddd; padding: 4px 10px; border-radius: 4px; font-weight: bold;">
+               📰 Naver
+            </a>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 3. 🤖 내장형 Gem (실시간 검색 + 심층 사고 모델) 호출 버튼
+        col_empty, col_btn = st.columns([4, 1.5]) 
+        with col_btn:
+            if st.button(f"🧠 {name} 심층 분석 가동", key=f"ai_{sym}"):
+                with st.spinner("수석 분석가가 실시간 웹 검색 및 최신 리포트를 수집 중입니다... (약 5~8초 소요)"):
+                    try:
+                        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                        
+                        analyst_persona = """
+                        당신의 역할은 전 영역을 아우르는 '수석 전략 분석가(Chief Strategy Analyst)'입니다. 
+                        단순한 과거 정보 나열을 철저히 배제하고, '가장 최신의 실시간 데이터(최근 1주일 내 뉴스, 애널리스트 목표가, 어닝 리포트)'를 반드시 검색하여 반영해야 합니다.
+                        아래의 [Deep Analysis Process] 3단계를 엄격히 지켜 마크다운 형식으로 답변하십시오.
+
+                        (Step 1) 두괄식 핵심 요약 (Executive Summary)
+                        - 결론과 '가장 최신 모멘텀'을 3줄 이내 요약(Bullet points)으로 최상단에 제시.
+
+                        (Step 2) 입체적 분석 (Tree of Thoughts)
+                        - (A) 주류 관점 (Thesis): 해당 기업의 본질적 BM 및 '최신 증권사 컨센서스/긍정적 뉴스'.
+                        - (B) 비판적 관점/리스크 (Antithesis): 최근 불거진 악재, 매크로 리스크, 실적 우려 (필수 포함).
+                        - (C) 통합적 통찰 (Synthesis): 위 두 관점을 종합한 단기/중장기 투자 결론.
+
+                        (Step 3) 논리 전개 (Chain-of-Thought)
+                        - 현재 주식 시장의 최신 매크로 환경과 주어진 퀀트 데이터(RS)를 결합하여 최종 논리 전개.
+                        """
+                        
+                        # 🎯 [핵심 패치 1] tools 파라미터에 'google_search_retrieval'을 부여하여 모델이 인터넷에 접속하도록 허가
+                        model = genai.GenerativeModel(
+                            model_name='gemini-1.5-pro',
+                            system_instruction=analyst_persona,
+                            tools='google_search_retrieval' 
+                        )
+                        
+                        # 🎯 [핵심 패치 2] 프롬프트에 '검색 강제' 명령 추가
+                        prompt = f"""
+                        현재 스크리닝 시스템에 포착된 한국 주식은 '{name}' (종목코드: {sym})입니다.
+                        상대강도(RS) 점수는 {rs:.1f}점입니다.
+                        
+                        [필수 수행 명령]
+                        지금 즉시 인터넷을 검색하여 '{name}'에 대한 가장 최근의 증권사 애널리스트 리포트 동향, 이번 달의 주요 공시, 그리고 현재 주가를 움직이는 핵심 뉴스 테마를 찾아내십시오.
+                        과거의 지식에 의존하지 말고, 방금 검색한 '최신 팩트'와 RS 점수({rs:.1f})를 결합하여 상위 1% 트레이더를 위한 심층 브리핑을 작성하십시오.
+                        """
+                        
+                        safety_settings = {
+                            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+                        }
+                        
+                        response = model.generate_content(prompt, safety_settings=safety_settings)
+                        
+                        st.markdown(f"""
+                        <div style="background-color: #F8F9FA; padding: 20px; border-radius: 8px; border-left: 5px solid #2C3E50; margin-bottom: 30px;">
+                            <h4 style="color: #2C3E50; margin-top: 0;">🧠 실시간 데이터 기반 수석 분석가 브리핑</h4>
+                            {response.text}
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                    except Exception as e:
+                        st.error(f"API 호출 실패 (키 설정 또는 네트워크 문제): {e}")
 
     # 하단 네비게이션
     st.markdown("---")
