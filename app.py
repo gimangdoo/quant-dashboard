@@ -367,66 +367,78 @@ try:
     start_idx = (st.session_state.page_num - 1) * items_per_page
     view_df = target_df.iloc[start_idx:start_idx + items_per_page]
     
+# 🎯 [핵심 패치 1] 개별 종목 차트 렌더링 루프
     for _, row in view_df.iterrows():
         sym = row['종목코드']
         name = row.get('종목명', sym)
         rs = row.get('RS', 0)
         
+        # 1. 차트 렌더링 ( scrollZoom 기능은 config에 유지)
         fig = draw_stock_chart(row, view_mode)
-        
-        # 🎯 [핵심 패치 4] 개별 차트 렌더링에도 휠 줌(scrollZoom: True) 권한 부여
         st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
         
+        # 2. 🎯 [핵심 패치 2] 아웃바운드 링크 영역 (한경 Consensus 추가 및 UI 정제)
         st.markdown(f"""
         <div style="text-align: right; margin-top: -25px; margin-bottom: 10px; padding-right: 40px;">
             <a href="https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{sym}" target="_blank" 
-               style="text-decoration: none; font-size: 12px; color: #555; background-color: #f8f9fa; border: 1px solid #ddd; padding: 4px 10px; border-radius: 4px; margin-right: 8px; font-weight: bold;">
+               style="text-decoration: none; font-size: 11px; color: #555; background-color: #f8f9fa; border: 1px solid #ddd; padding: 4px 8px; border-radius: 4px; margin-right: 6px; font-weight: bold;">
                📊 FnGuide
             </a>
             <a href="https://finance.naver.com/item/main.naver?code={sym}" target="_blank" 
-               style="text-decoration: none; font-size: 12px; color: #555; background-color: #f8f9fa; border: 1px solid #ddd; padding: 4px 10px; border-radius: 4px; font-weight: bold;">
+               style="text-decoration: none; font-size: 11px; color: #555; background-color: #f8f9fa; border: 1px solid #ddd; padding: 4px 8px; border-radius: 4px; margin-right: 6px; font-weight: bold;">
                📰 Naver
+            </a>
+            <a href="https://markets.hankyung.com/consensus?q={sym}" target="_blank" 
+               style="text-decoration: none; font-size: 11px; color: #2c3e50; background-color: #e3f2fd; border: 1px solid #90caf9; padding: 4px 8px; border-radius: 4px; font-weight: bold;">
+               📑 한경 Consensus
             </a>
         </div>
         """, unsafe_allow_html=True)
         
+        # 3. 🤖 내장형 Gem (심층 추론 안정 모드) 호출 버튼
         col_empty, col_btn = st.columns([4, 1.5]) 
         with col_btn:
             if st.button(f"🧠 {name} 심층 분석 가동", key=f"ai_{sym}"):
-                with st.spinner("수석 분석가가 실시간 웹 검색 및 최신 리포트를 수집 중입니다... (약 5~8초 소요)"):
+                with st.spinner("수석 전략 분석가가 심층 추론 엔진을 가동 중입니다... (약 10초 소요)"):
                     try:
                         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                         
+                        # [핵심 패치 3] 프롬프트에서 '실시간 검색' 관련 명령을 제거하고 '데이터 추론'에 집중
                         analyst_persona = """
-                        당신의 역할은 전 영역을 아우르는 '수석 전략 분석가(Chief Strategy Analyst)'입니다. 
-                        단순한 과거 정보 나열을 철저히 배제하고, '가장 최신의 실시간 데이터(최근 1주일 내 뉴스, 애널리스트 목표가, 어닝 리포트)'를 반드시 검색하여 반영해야 합니다.
-                        아래의 [Deep Analysis Process] 3단계를 엄격히 지켜 마크다운 형식으로 답변하십시오.
+                        당신의 역할은 전 영역(인문, 사회, 과학, 경제 등)을 아우르는 '수석 전략 분석가(Chief Strategy Analyst)'입니다. 
+                        단순한 정보 나열을 철저히 배제하고, 주어진 데이터와 당신이 학습한 방대한 논리를 결합하여 
+                        아주 날카롭고 입체적인 심층 통찰(Insight)을 제공해야 합니다.
+                        반드시 아래의 [Deep Analysis Process] 3단계를 엄격히 지켜 마크다운 형식으로 답변하십시오.
 
                         (Step 1) 두괄식 핵심 요약 (Executive Summary)
-                        - 결론과 '가장 최신 모멘텀'을 3줄 이내 요약(Bullet points)으로 최상단에 제시.
+                        - 결론과 기업의 '본질적 경쟁력'을 3줄 이내 요약(Bullet points)으로 최상단에 제시.
 
                         (Step 2) 입체적 분석 (Tree of Thoughts)
-                        - (A) 주류 관점 (Thesis): 해당 기업의 본질적 BM 및 '최신 증권사 컨센서스/긍정적 뉴스'.
-                        - (B) 비판적 관점/리스크 (Antithesis): 최근 불거진 악재, 매크로 리스크, 실적 우려 (필수 포함).
-                        - (C) 통합적 통찰 (Synthesis): 위 두 관점을 종합한 단기/중장기 투자 결론.
+                        - (A) 주류 관점 (Thesis): 해당 기업의 핵심 BM 및 시장에서 바라보는 긍정적 시나리오.
+                        - (B) 비판적 관점/리스크 (Antithesis): 비즈니스 모델의 한계, 매크로 리스크, 재무적 약점 (필수 포함).
+                        - (C) 통합적 통찰 (Synthesis): 위 두 관점을 종합한 균형 잡힌 최종 투자 결론.
 
                         (Step 3) 논리 전개 (Chain-of-Thought)
-                        - 현재 주식 시장의 최신 매크로 환경과 주어진 퀀트 데이터(RS)를 결합하여 최종 논리 전개.
+                        - 주어진 RS 데이터({rs:.1f}점)가 의미하는 기술적 내러티브와 당신이 분석한 펀더멘털을 결합하여, 
+                          상위 1% 트레이더를 위한 최종 투자 논리를 전개.
                         """
                         
+                        # 🎯 [핵심 패치 4] 안정적인 GA 버전 모델로 교체하고, 404 에러 원인인 tools 제거
                         model = genai.GenerativeModel(
-                            model_name='gemini-1.5-pro-latest',
-                            system_instruction=analyst_persona,
-                            tools='google_search_retrieval' 
+                            model_name='gemini-1.5-pro-001', # 가장 안정적인 스펙의 Pro 모델 지정
+                            system_instruction=analyst_persona
+                            # tools 파라미터 제거 (404 Not Found 문제의 근본 해결)
                         )
                         
+                        # 프롬프트도 실시간 검색이 아닌 추론 요구로 수정
                         prompt = f"""
                         현재 스크리닝 시스템에 포착된 한국 주식은 '{name}' (종목코드: {sym})입니다.
-                        상대강도(RS) 점수는 {rs:.1f}점입니다.
+                        시장 대비 상대강도(RS) 점수는 {rs:.1f}점(높을수록 시장 주도주 모멘텀)입니다.
                         
                         [필수 수행 명령]
-                        지금 즉시 인터넷을 검색하여 '{name}'에 대한 가장 최근의 증권사 애널리스트 리포트 동향, 이번 달의 주요 공시, 그리고 현재 주가를 움직이는 핵심 뉴스 테마를 찾아내십시오.
-                        과거의 지식에 의존하지 말고, 방금 검색한 '최신 팩트'와 RS 점수({rs:.1f})를 결합하여 상위 1% 트레이더를 위한 심층 브리핑을 작성하십시오.
+                        당신의 모든 지적 능력과 페르소나를 가동하여, 이 기업의 본질적 가치와 
+                        현재 {rs:.1f}점이라는 높은 RS 점수가 시사하는 주도주/턴어라운드로서의 가능성을 
+                        입체적으로 분석하여 브리핑하십시오.
                         """
                         
                         safety_settings = {
@@ -438,17 +450,18 @@ try:
                         
                         response = model.generate_content(prompt, safety_settings=safety_settings)
                         
+                        # 렌더링 UI (가독성을 위한 그레이 박스 및 사이드 바)
                         st.markdown(f"""
                         <div style="background-color: #F8F9FA; padding: 20px; border-radius: 8px; border-left: 5px solid #2C3E50; margin-bottom: 30px;">
-                            <h4 style="color: #2C3E50; margin-top: 0;">🧠 실시간 데이터 기반 수석 분석가 브리핑</h4>
+                            <h4 style="color: #2C3E50; margin-top: 0;">🧠 수석 분석가 심층 추론 브리핑</h4>
                             {response.text}
                         </div>
                         """, unsafe_allow_html=True)
                         
                     except Exception as e:
-                        st.error(f"API 호출 실패 (키 설정 또는 네트워크 문제): {e}")
+                        st.error(f"AI 분석 호출 실패 (네트워크 또는 서버 문제): {e}")
         
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True) # 차트 간 간격
 
     st.markdown("---")
     col1, col2, col3 = st.columns([1, 2, 1])
