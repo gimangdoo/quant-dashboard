@@ -7,3 +7,4 @@ finance-datareader
 beautifulsoup4
 lxml
 html5lib
+google-generativeai
