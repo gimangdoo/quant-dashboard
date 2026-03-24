@@ -370,97 +370,38 @@ try:
     import google.generativeai as genai
     from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
-    # 🎯 개별 종목 차트 렌더링 루프
+    # 🎯 개별 종목 차트 렌더링 루프 (AI 코드 완전 제거)
     for _, row in view_df.iterrows():
         sym = row['종목코드']
         name = row.get('종목명', sym)
         rs = row.get('RS', 0)
         
-        # 1. 차트 렌더링
+        # 1. 차트 렌더링 (마이크로 줌인 기능 유지)
         fig = draw_stock_chart(row, view_mode)
         st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
         
-        # 2. 🎯 https://ko.wikipedia.org/wiki/%ED%8C%A8%EC%B9%98_%28%EC%BB%B4%ED%93%A8%ED%8C%85%29 꽉 막힌 한경 대신, 애널리스트 리포트를 직접 다운받을 수 있는 네이버 리서치 URL로 대체
+        # 2. 🎯 하단 3대 필수 다이렉트 링크 (군더더기 없는 UI)
         st.markdown(f"""
-        <div style="text-align: right; margin-top: -25px; margin-bottom: 10px; padding-right: 40px;">
+        <div style="text-align: right; margin-top: -25px; margin-bottom: 30px; padding-right: 40px;">
             <a href="https://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A{sym}" target="_blank" 
-               style="text-decoration: none; font-size: 11px; color: #555; background-color: #f8f9fa; border: 1px solid #ddd; padding: 4px 8px; border-radius: 4px; margin-right: 6px; font-weight: bold;">
-               📊 FnGuide
+               style="text-decoration: none; font-size: 11px; color: #555; background-color: #f8f9fa; border: 1px solid #ddd; padding: 4px 10px; border-radius: 4px; margin-right: 8px; font-weight: bold; transition: 0.3s;">
+               📊 FnGuide (기업개요)
             </a>
             <a href="https://finance.naver.com/item/main.naver?code={sym}" target="_blank" 
-               style="text-decoration: none; font-size: 11px; color: #555; background-color: #f8f9fa; border: 1px solid #ddd; padding: 4px 8px; border-radius: 4px; margin-right: 6px; font-weight: bold;">
-               📰 네이버 증권
+               style="text-decoration: none; font-size: 11px; color: #555; background-color: #f8f9fa; border: 1px solid #ddd; padding: 4px 10px; border-radius: 4px; margin-right: 8px; font-weight: bold; transition: 0.3s;">
+               📰 네이버 증권 (뉴스/테마)
             </a>
             <a href="https://finance.naver.com/research/company_list.naver?keyword={sym}&searchType=itemCode" target="_blank" 
-               style="text-decoration: none; font-size: 11px; color: #2c3e50; background-color: #e3f2fd; border: 1px solid #90caf9; padding: 4px 8px; border-radius: 4px; font-weight: bold;">
+               style="text-decoration: none; font-size: 11px; color: #2c3e50; background-color: #e3f2fd; border: 1px solid #90caf9; padding: 4px 10px; border-radius: 4px; font-weight: bold; transition: 0.3s;">
                📑 증권사 리포트 모아보기
             </a>
         </div>
         """, unsafe_allow_html=True)
         
-        # 3. 🤖 내장형 Gem 호출 버튼
-        col_empty, col_btn = st.columns([4, 1.5]) 
-        with col_btn:
-            if st.button(f"🧠 {name} 심층 분석 가동", key=f"ai_{sym}"):
-                with st.spinner("수석 전략 분석가가 초고속 추론 엔진을 가동 중입니다... (약 3~5초 소요)"):
-                    try:
-                        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                        
-                        analyst_persona = """
-                        당신의 역할은 전 영역을 아우르는 '수석 전략 분석가(Chief Strategy Analyst)'입니다. 
-                        단순한 정보 나열을 철저히 배제하고, 주어진 데이터와 당신이 학습한 방대한 논리를 결합하여 
-                        아주 날카롭고 입체적인 심층 통찰(Insight)을 제공해야 합니다.
-                        반드시 아래의 [Deep Analysis Process] 3단계를 엄격히 지켜 마크다운 형식으로 답변하십시오.
-
-                        (Step 1) 두괄식 핵심 요약 (Executive Summary)
-                        - 결론과 기업의 '본질적 경쟁력'을 3줄 이내 요약(Bullet points)으로 최상단에 제시.
-
-                        (Step 2) 입체적 분석 (Tree of Thoughts)
-                        - (A) 주류 관점 (Thesis): 해당 기업의 핵심 BM 및 시장에서 바라보는 긍정적 시나리오.
-                        - (B) 비판적 관점/리스크 (Antithesis): 비즈니스 모델의 한계, 매크로 리스크, 재무적 약점 (필수 포함).
-                        - (C) 통합적 통찰 (Synthesis): 위 두 관점을 종합한 균형 잡힌 최종 투자 결론.
-
-                        (Step 3) 논리 전개 (Chain-of-Thought)
-                        - 주어진 RS 데이터 점수가 의미하는 기술적 내러티브와 펀더멘털을 결합하여 트레이딩 논리 전개.
-                        """
-                        
-                        # 🎯 [API 패치] 권한이 막힌 Pro 모델 대신, 모든 사용자에게 개방된 '초고속 Flash 모델' 사용
-                        model = genai.GenerativeModel(
-                            model_name='gemini-1.5-flash', 
-                            system_instruction=analyst_persona
-                        )
-                        
-                        prompt = f"""
-                        현재 스크리닝 시스템에 포착된 한국 주식은 '{name}' (종목코드: {sym})입니다.
-                        시장 대비 상대강도(RS) 점수는 {rs:.1f}점(높을수록 시장 주도주 모멘텀)입니다.
-                        
-                        [필수 수행 명령]
-                        당신의 지적 능력과 페르소나를 가동하여, 이 기업의 본질적 가치와 
-                        현재 {rs:.1f}점이라는 높은 RS 점수가 시사하는 주도주/턴어라운드로서의 가능성을 분석하십시오.
-                        """
-                        
-                        safety_settings = {
-                            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-                        }
-                        
-                        response = model.generate_content(prompt, safety_settings=safety_settings)
-                        
-                        st.markdown(f"""
-                        <div style="background-color: #F8F9FA; padding: 20px; border-radius: 8px; border-left: 5px solid #2C3E50; margin-bottom: 30px;">
-                            <h4 style="color: #2C3E50; margin-top: 0;">🧠 수석 분석가 초고속 브리핑</h4>
-                            {response.text}
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                    except Exception as e:
-                        st.error(f"AI 분석 호출 실패: {e}")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True) # 차트 간 여백
 
     st.markdown("---")
+    # 하단 페이징 네비게이션
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.number_input(
